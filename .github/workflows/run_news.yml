@@ -5,9 +5,13 @@ on:
   workflow_dispatch:
     inputs:
       max_age_hours:
-        description: "Antigüedad máxima de las noticias en horas (para pruebas usa 72)"
+        description: "Antigüedad máxima de las noticias, en horas (para probar usa 72)"
         required: false
         default: "30"
+      max_articles:
+        description: "Cantidad máxima de noticias a publicar"
+        required: false
+        default: "6"
 
   # Ejecución diaria: 12:00 UTC = 09:00 AM en Argentina (UTC-3, sin horario de verano)
   schedule:
@@ -22,26 +26,33 @@ concurrency:
 
 jobs:
   send-news:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    name: Enviar noticias a Discord
+    # Imagen fija: elimina el aviso de migración de ubuntu-latest a Ubuntu 26.04
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
 
     steps:
+      # Versiones que declaran Node.js 24: eliminan el aviso "Node.js 20 is deprecated"
       - name: Descargar el repositorio
         uses: actions/checkout@v7
 
-      - name: Instalar Python 3.10
+      - name: Instalar Python 3.12
         uses: actions/setup-python@v6
         with:
-          python-version: "3.10"
+          python-version: "3.12"
 
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
-          pip install feedparser requests beautifulsoup4
+          pip install "feedparser>=6.0" "requests>=2.31" "beautifulsoup4>=4.12" "trafilatura>=2.0"
 
       - name: Ejecutar el bot de noticias
         env:
+          PYTHONUNBUFFERED: "1"
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          # Opcional: si no creas este secret, queda vacío y el bot lo ignora
+          JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
           MAX_AGE_HOURS: ${{ github.event.inputs.max_age_hours || '30' }}
+          MAX_ARTICLES: ${{ github.event.inputs.max_articles || '6' }}
         run: python bot.py
