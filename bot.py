@@ -1,6 +1,7 @@
 import os
 import feedparser
 import requests
+from bs4 import BeautifulSoup
 
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -10,14 +11,36 @@ RSS_FEEDS = [
     {"name": "MIT Tech Review", "url": "https://www.technologyreview.com/feed/"}
 ]
 
-def summarize_with_ai(title, summary):
-    if not GROQ_API_KEY:
-        return summary or title
+def fetch_full_article_text(url):
+    """Entra al enlace de la noticia y extrae el texto del cuerpo del artículo."""
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            # Extrae todos los párrafos de la página
+            paragraphs = soup.find_all('p')
+            full_text = " ".join([p.get_text() for p in paragraphs if len(p.get_text()) > 30])
+            # Retorna los primeros 3500 caracteres para no saturar el límite de tokens
+            return full_text[:3500]
+    except Exception as e:
+        print(f"Error al extraer artículo de {url}: {e}")
+    return ""
 
-    prompt = f"""Actúa como un experto en Inteligencia Artificial. Traduce y haz un resumen directo y claro en español (máximo 3 oraciones) de la siguiente noticia sobre IA, explicando de qué trata y por qué importa.
+def summarize_with_ai(title, full_text):
+    """Utiliza Groq para analizar y resumir el contenido completo del artículo."""
+    if not GROQ_API_KEY or not full_text:
+        return "No se pudo extraer el contenido completo para resumir."
+
+    prompt = f"""Eres un experto analista en Inteligencia Artificial. Lee el siguiente artículo completo y haz un resumen detallado y explicativo en ESPAÑOL.
+
+Estructura el resumen de la siguiente manera:
+1. **¿De qué trata?**: Explica de forma clara el avance, noticia o agente de IA mencionado.
+2. **Puntos clave**: Agrega 2 o 3 viñetas con los detalles más importantes.
+3. **¿Por qué importa?**: Explica brevemente su impacto.
 
 Título: {title}
-Contenido: {summary}
+Texto del artículo: {full_text}
 
 Resumen en español:"""
 
@@ -32,52 +55,43 @@ Resumen en español:"""
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.3,
-                "max_tokens": 250
+                "max_tokens": 450
             },
-            timeout=15
+            timeout=20
         )
         if response.status_code == 200:
             return response.json()["choices"][0]["message"]["content"].strip()
     except Exception as e:
-        print(f"Error conectando con la IA: {e}")
+        print(f"Error en API de Groq: {e}")
 
-    return summary or title
+    return "Error al generar el resumen con la IA."
 
 def send_news():
     if not WEBHOOK_URL:
         print("Error: Falta DISCORD_WEBHOOK_URL")
         return
 
-    embeds = []
+    # Mensaje inicial de cabecera
+    requests.post(WEBHOOK_URL, json={"content": "🤖 **¡Resumen Diario Detallado de Noticias sobre IA y Agentes!**\n*Procesado, extraído y resumido con IA:*"})
+
     for feed_info in RSS_FEEDS:
         feed = feedparser.parse(feed_info["url"])
-        for entry in feed.entries[:2]: # 2 noticias por fuente
+        for entry in feed.entries[:2]: # Procesa las 2 noticias principales de cada fuente
             title = entry.title
-            raw_summary = getattr(entry, 'summary', '')
+            link = entry.link
 
-            # Generar resumen automático y traducción con IA
-            ai_summary = summarize_with_ai(title, raw_summary)
+            print(f"Extrayendo y procesando: {title}")
+            full_text = fetch_full_article_text(link)
+            ai_summary = summarize_with_ai(title, full_text)
 
-            embeds.append({
-                "title": f"🤖 {title[:200]}",
-                "description": f"{ai_summary}\n\n[Leer nota completa en {feed_info['name']}]({entry.link})",
+            embed = {
+                "title": f"📰 {title[:200]}",
+                "description": f"{ai_summary}\n\n🔗 [Leer nota completa original en {feed_info['name']}]({link})",
                 "color": 3447003
-            })
+            }
 
-    if not embeds:
-        print("No hay noticias nuevas.")
-        return
-
-    payload = {
-        "content": "📰 **Resumen Diario de IA y Agentes (Generado y Traducido por IA)**",
-        "embeds": embeds[:6]
-    }
-
-    res = requests.post(WEBHOOK_URL, json=payload)
-    if res.status_code == 204:
-        print("¡Resumen enviado con éxito a Discord!")
-    else:
-        print(f"Error al enviar a Discord: {res.status_code}")
+            # Envía un mensaje individual por noticia para evitar límites de tamaño en Discord
+            requests.post(WEBHOOK_URL, json={"embeds": [embed]})
 
 if __name__ == "__main__":
     send_news()
