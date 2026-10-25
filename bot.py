@@ -18,10 +18,8 @@ def fetch_full_article_text(url):
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
-            # Extrae todos los párrafos de la página
             paragraphs = soup.find_all('p')
             full_text = " ".join([p.get_text() for p in paragraphs if len(p.get_text()) > 30])
-            # Retorna los primeros 3500 caracteres para no saturar el límite de tokens
             return full_text[:3500]
     except Exception as e:
         print(f"Error al extraer artículo de {url}: {e}")
@@ -71,12 +69,11 @@ def send_news():
         print("Error: Falta DISCORD_WEBHOOK_URL")
         return
 
-    # Mensaje inicial de cabecera
     requests.post(WEBHOOK_URL, json={"content": "🤖 **¡Resumen Diario Detallado de Noticias sobre IA y Agentes!**\n*Procesado, extraído y resumido con IA:*"})
 
     for feed_info in RSS_FEEDS:
         feed = feedparser.parse(feed_info["url"])
-        for entry in feed.entries[:2]: # Procesa las 2 noticias principales de cada fuente
+        for entry in feed.entries[:2]:
             title = entry.title
             link = entry.link
 
@@ -90,7 +87,6 @@ def send_news():
                 "color": 3447003
             }
 
-            # Envía un mensaje individual por noticia para evitar límites de tamaño en Discord
             requests.post(WEBHOOK_URL, json={"embeds": [embed]})
 
 if __name__ == "__main__":
