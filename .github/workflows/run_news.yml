@@ -1,27 +1,47 @@
-name: Bot de Noticias IA Automatico
+name: Noticias diarias de IA
 
 on:
+  # Ejecución manual desde la pestaña Actions
+  workflow_dispatch:
+    inputs:
+      max_age_hours:
+        description: "Antigüedad máxima de las noticias en horas (para pruebas usa 72)"
+        required: false
+        default: "30"
+
+  # Ejecución diaria: 12:00 UTC = 09:00 AM en Argentina (UTC-3, sin horario de verano)
   schedule:
-    - cron: '0 12 * * *' # Se ejecuta automáticamente todos los días a las 9:00 AM de Argentina
-  workflow_dispatch: # Permite probarlo manualmente cuando quieras
+    - cron: '0 12 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: noticias-ia
+  cancel-in-progress: false
 
 jobs:
-  run-bot:
+  send-news:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout codigo
-        uses: actions/checkout@v4
+    timeout-minutes: 15
 
-      - name: Configurar Python
-        uses: actions/setup-python@v5
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v7
+
+      - name: Instalar Python 3.10
+        uses: actions/setup-python@v6
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
       - name: Instalar dependencias
-        run: pip install feedparser requests beautifulsoup4
+        run: |
+          python -m pip install --upgrade pip
+          pip install feedparser requests beautifulsoup4
 
-      - name: Ejecutar bot
+      - name: Ejecutar el bot de noticias
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MAX_AGE_HOURS: ${{ github.event.inputs.max_age_hours || '30' }}
         run: python bot.py
